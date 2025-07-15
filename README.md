@@ -48,7 +48,7 @@ This project rings a real school bell automatically using an **ESP32** and a **r
 - Power via USB or adapter
 
 📷 **Circuit image:**  
-![Circuit](circuit%20connection.png)
+![Circuit](circuit connectio.png)
 
 ---
 
