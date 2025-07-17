@@ -1,3 +1,4 @@
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiUdp.h>
@@ -12,58 +13,95 @@
 #define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Wi-Fi
-const char* ssid = "wifi_name";
-const char* password = "wifi_pass";
+// Wi-Fi credentials
+const char* ssid = "motoedge50fusion_4604";
+const char* password = "12345679";
 
-// Web Server
+// Web server
 WebServer server(80);
 Preferences preferences;
 
-// Relay
+// Relay pin
 const int relayPin = 27;
 
-// System state
+// App state
 String currentMode = "CLASS";
-const String correctPassword = "7900";
-String customLabel1 = "Class Time";
-String customLabel2 = "Exam Mode";
-String customLabel3 = "Custom Event";
-String customTimes[9];  // 9 bell times
+const String correctPassword = "*****";
+String customTimes[9];
 String lastBell = "";
 
 unsigned long lastAdMillis = 0;
 
-// Login Page
+// Login HTML page
 String loginPage = R"rawliteral(
-<html><body><h2>Enter Password</h2>
-<form action='/login' method='POST'>
-Password: <input type='password' name='pass'>
-<input type='submit' value='Login'>
-</form></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Login</title>
+  <style>
+    body {
+      background: #0d0d0d;
+      color: white;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      height: 100vh;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    input[type='password'], input[type='submit'] {
+      padding: 12px;
+      margin: 10px;
+      font-size: 16px;
+      width: 100%;
+      max-width: 300px;
+      border-radius: 6px;
+      border: none;
+    }
+    input[type='submit'] {
+      background: #1e90ff;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Smart Bell Login</h2>
+  <form action='/login' method='POST'>
+    <input type='password' name='pass' placeholder='Enter Password'><br>
+    <input type='submit' value='Login'>
+  </form>
+</body>
+</html>
 )rawliteral";
 
-// Mode Selection Page
+// Mode setup page
 String generateModePage() {
-  String page = "<html><body><h2>Select Mode</h2>";
+  String page = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>Smart Bell</title><style>";
+  page += "body{background:#121212;color:white;font-family:sans-serif;padding:20px;box-sizing:border-box;}";
+  page += "input,select{padding:10px;margin:8px 0;width:100%;max-width:400px;border:none;border-radius:6px;background:#2b2b2b;color:white;}";
+  page += "input[type='submit']{background:#2196F3;color:white;cursor:pointer;}";
+  page += "label{display:block;margin-top:10px;}";
+  page += "h2{color:#03dac6;}";
+  page += "</style></head><body><div><h2>Select Mode</h2>";
   page += "<form action='/setmode' method='POST'>";
-  page += "<select name='mode'>";
-  page += "<option value='CLASS'>" + customLabel1 + "</option>";
-  page += "<option value='EXAM'>" + customLabel2 + "</option>";
-  page += "<option value='CUSTOM'>" + customLabel3 + "</option>";
-  page += "</select><br><br>";
-  page += "Custom Label 1: <input name='label1' value='" + customLabel1 + "'><br>";
-  page += "Custom Label 2: <input name='label2' value='" + customLabel2 + "'><br>";
-  page += "Custom Label 3: <input name='label3' value='" + customLabel3 + "'><br><br>";
+  page += "<label for='mode'>Mode</label><select name='mode'>";
+  page += String("<option value='CLASS' ") + (currentMode == "CLASS" ? "selected" : "") + ">CLASS</option>";
+  page += String("<option value='EXAM' ") + (currentMode == "EXAM" ? "selected" : "") + ">EXAM</option>";
+  page += String("<option value='CUSTOM' ") + (currentMode == "CUSTOM" ? "selected" : "") + ">CUSTOM</option>";
+  page += "</select>";
   for (int i = 0; i < 9; i++) {
-    page += "Bell Time " + String(i + 1) + " (HH:MM): <input name='bell" + String(i) + "' value='" + customTimes[i] + "'><br>";
+    page += "<label>Bell Time " + String(i + 1) + "</label><input type='time' name='bell" + String(i) + "' value='" + customTimes[i] + "'>";
   }
-  page += "<br><input type='submit' value='Apply'>";
-  page += "</form><br><br>";
-  page += "<p>ESP32 Status: ✅ Connected</p></body></html>";
+  page += "<input type='submit' value='Apply'>";
+  page += "</form><p>ESP32 Status: ✅ Connected</p></div></body></html>";
   return page;
 }
 
+// Show logo screen
 void showAdScreen() {
   display.clearDisplay();
   display.setTextSize(2);
@@ -78,7 +116,7 @@ void showAdScreen() {
   lastAdMillis = millis();
 }
 
-// ✅ Get formatted time (HH:MM) using internal RTC
+// Get time as string
 String getFormattedTime() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) return "00:00";
@@ -87,12 +125,11 @@ String getFormattedTime() {
   return String(buf);
 }
 
-// ✅ Ring bell continuously
+// Ring the bell
 void ringBell(int durationMs) {
-  digitalWrite(relayPin, LOW);  // Relay ON
+  digitalWrite(relayPin, LOW);
   delay(durationMs);
-  digitalWrite(relayPin, HIGH); // Relay OFF
-
+  digitalWrite(relayPin, HIGH);
   display.clearDisplay();
   display.setTextSize(2);
   display.setCursor(20, 20);
@@ -102,24 +139,19 @@ void ringBell(int durationMs) {
   delay(1000);
 }
 
+// Check if current time matches a bell time
 void checkBellSchedule() {
   String currentTime = getFormattedTime();
   String times[9];
   int durations[9];
 
   if (currentMode == "CLASS") {
-    String classTimes[9] = {
-      "08:45", "09:35", "10:25", "10:45", "12:25", "13:25", "15:05", "15:25", "16:15"
-    };
-    int classDurations[9] = {
-      3000, 3000, 6000, 3000, 6000, 3000, 6000, 3000, 6000
-    };
+    String classTimes[9] = {"08:45", "09:35", "10:25", "10:45", "12:25", "13:25", "15:05", "15:25", "16:15"};
+    int classDurations[9] = {3000, 3000, 6000, 3000, 6000, 3000, 6000, 3000, 6000};
     memcpy(times, classTimes, sizeof(times));
     memcpy(durations, classDurations, sizeof(durations));
   } else if (currentMode == "EXAM") {
-    String examTimes[9] = {
-      "09:30", "12:00", "12:30", "13:30", "14:15", "16:15", "00:00", "00:01", "00:02"
-    };
+    String examTimes[9] = {"09:30", "12:00", "12:30", "13:30", "14:15", "16:15", "00:00", "00:01", "00:02"};
     for (int i = 0; i < 9; i++) durations[i] = 3000;
     memcpy(times, examTimes, sizeof(times));
   } else if (currentMode == "CUSTOM") {
@@ -135,9 +167,9 @@ void checkBellSchedule() {
   }
 }
 
+// Update OLED display
 void updateDisplay() {
   if (millis() - lastAdMillis >= 10000) showAdScreen();
-
   display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
@@ -145,15 +177,17 @@ void updateDisplay() {
   display.println("  " + getFormattedTime());
   display.setCursor(35, 45);
   display.setTextSize(1);
-  display.println(currentMode == "CLASS" ? customLabel1 : currentMode == "EXAM" ? customLabel2 : customLabel3);
+  display.println(currentMode);
   display.display();
 }
 
+// Display refresh after applying mode
 void applyMode() {
-  digitalWrite(relayPin, HIGH);  // Relay OFF default
+  digitalWrite(relayPin, HIGH);
   updateDisplay();
 }
 
+// Web routes
 void handleRoot() {
   server.send(200, "text/html", loginPage);
 }
@@ -168,15 +202,9 @@ void handleLogin() {
 void handleSetMode() {
   if (server.hasArg("mode")) {
     currentMode = server.arg("mode");
-    customLabel1 = server.arg("label1");
-    customLabel2 = server.arg("label2");
-    customLabel3 = server.arg("label3");
 
     preferences.begin("settings", false);
     preferences.putString("mode", currentMode);
-    preferences.putString("label1", customLabel1);
-    preferences.putString("label2", customLabel2);
-    preferences.putString("label3", customLabel3);
 
     for (int i = 0; i < 9; i++) {
       customTimes[i] = server.arg("bell" + String(i));
@@ -189,15 +217,17 @@ void handleSetMode() {
   }
 }
 
+// Setup everything
 void setup() {
   Serial.begin(115200);
   pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, HIGH);  // Default OFF
+  digitalWrite(relayPin, HIGH);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("OLED init failed");
     while (true);
   }
+
   display.clearDisplay();
   display.display();
 
@@ -208,13 +238,10 @@ void setup() {
   }
   Serial.println("\nWiFi Connected: " + WiFi.localIP().toString());
 
-  configTime(19800, 0, "pool.ntp.org", "time.nist.gov");  // IST time zone
+  configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
 
   preferences.begin("settings", false);
   currentMode = preferences.getString("mode", "CLASS");
-  customLabel1 = preferences.getString("label1", "Class Time");
-  customLabel2 = preferences.getString("label2", "Exam Mode");
-  customLabel3 = preferences.getString("label3", "Custom Event");
   for (int i = 0; i < 9; i++) {
     customTimes[i] = preferences.getString(("bell" + String(i)).c_str(), "");
   }
@@ -229,6 +256,7 @@ void setup() {
   server.begin();
 }
 
+// Loop execution
 void loop() {
   server.handleClient();
   checkBellSchedule();
